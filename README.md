@@ -1,125 +1,84 @@
-# Step 1: Get absolute correlation with target
-corrs = new_features.corrwith(y_smooth).abs()
-top_features = corrs.sort_values(ascending=False).head(50)
+# Use a rolling or expanding window to train on past and predict next window
+window_size = 60  # e.g., 60 trading days ~ 3 months
 
-# Step 2: Remove correlated duplicates
-uncorrelated_features = []
-for f in top_features.index:
-    if all(new_features[f].corr(new_features[uf]) < 0.85 for uf in uncorrelated_features):
-        uncorrelated_features.append(f)
+r2_scores = []
+for start in range(0, len(X) - 2 * window_size, 10):
+    X_train = X.iloc[start : start + window_size]
+    y_train = y.iloc[start : start + window_size]
+    
+    X_test = X.iloc[start + window_size : start + 2 * window_size]
+    y_test = y.iloc[start + window_size : start + 2 * window_size]
+    
+    model = LinearRegression().fit(X_train, y_train)
+    r2 = model.score(X_test, y_test)
+    r2_scores.append((start, r2))
 
-# Step 3: Try best 1, 2, 3-feature combinations
-from itertools import combinations
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
+
+
+
+
+ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
-
-best_combo = None
-best_r2 = -np.inf
-
-for k in range(1, 4):
-    for combo in combinations(uncorrelated_features, k):
-        X = new_features[list(combo)]
-        X_train, X_test, y_train, y_test = train_test_split(X, y_smooth, test_size=0.2, shuffle=False)
-        model = LinearRegression(fit_intercept=False).fit(X_train, y_train)
-        r2 = r2_score(y_test, model.predict(X_test))
-        if r2 > best_r2:
-            best_r2 = r2
-            best_combo = combo
-
-print("Best features:", best_combo)
-print("R²:", best_r2)
-
-
-
-
-
-
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-
-# Step 1: Standardize features
-X_std = StandardScaler().fit_transform(new_features)
-
-# Step 2: Run PCA
-pca = PCA()
-X_pca = pca.fit_transform(X_std)
-
-# Step 3: Analyze explained variance
-import matplotlib.pyplot as plt
-
-plt.plot(np.cumsum(pca.explained_variance_ratio_))
-plt.xlabel('Number of components')
-plt.ylabel('Cumulative explained variance')
-plt.title('Explained Variance by PCA Components')
-plt.grid(True)
-plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-import xgboost as xgb
 import numpy as np
 import pandas as pd
-import re
 
-# Assume: X_train, y_train, new_features already defined
+def compute_feature_scores(X: pd.DataFrame, y: pd.Series, window_size=60, step=10, lambda_weight=1.0, gamma_weight=1.0):
+    """
+    For each feature, compute a score:
+    Score = Mean R² - λ * Std R² - γ * PSI
+    """
+    feature_scores = []
 
-# Train XGBoost
-xgb_model = xgb.XGBRegressor(
-    n_estimators=100,
-    max_depth=3,
-    learning_rate=0.05,
-    random_state=42
-)
-xgb_model.fit(X_train, y_train)
+    for feature in X.columns:
+        r2_list = []
 
-# Dump the model and parse split conditions
-model_dump = xgb_model.get_booster().get_dump()
+        # Rolling R²
+        for start in range(0, len(X) - 2 * window_size, step):
+            X_train = X[feature].iloc[start: start + window_size].values.reshape(-1, 1)
+            y_train = y.iloc[start: start + window_size]
 
-# Extract split rules: "feature_name<0.123456"
-split_rules = []
-for tree in model_dump:
-    lines = tree.split('\n')
-    for line in lines:
-        match = re.search(r'(\w+)<([-\d\.e]+)', line)
-        if match:
-            feature = match.group(1)
-            threshold = float(match.group(2))
-            split_rules.append((feature, threshold))
+            X_test = X[feature].iloc[start + window_size: start + 2 * window_size].values.reshape(-1, 1)
+            y_test = y.iloc[start + window_size: start + 2 * window_size]
 
-# Aggregate: find top thresholds per feature
-from collections import defaultdict
-feature_thresholds = defaultdict(list)
-for feature, threshold in split_rules:
-    feature_thresholds[feature].append(threshold)
+            if len(np.unique(X_train)) <= 1 or len(np.unique(X_test)) <= 1:
+                continue  # skip degenerate windows
 
-# Deduplicate and average
-top_thresholds = {f: sorted(set(threshes))[:3] for f, threshes in feature_thresholds.items()}
+            model = LinearRegression().fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            r2 = r2_score(y_test, y_pred)
+            r2_list.append(r2)
 
-# Construct ramp (ReLU) transforms
-for f, thresh_list in top_thresholds.items():
-    if f in new_features.columns:
-        for t in thresh_list:
-            new_features[f'{f}_ramp_{t:.3f}'] = np.maximum(0, new_features[f] - t)
+        if len(r2_list) < 2:
+            continue
 
+        mean_r2 = np.mean(r2_list)
+        std_r2 = np.std(r2_list)
+
+        # PSI between early and late periods
+        psi = compute_psi(X[feature].iloc[:90].values, X[feature].iloc[-90:].values)  # Adjust length as needed
+
+        score = mean_r2 - lambda_weight * std_r2 - gamma_weight * psi
+        feature_scores.append((feature, score, mean_r2, std_r2, psi))
+
+    return pd.DataFrame(feature_scores, columns=['Feature', 'Score', 'MeanR2', 'StdR2', 'PSI']).sort_values('Score', ascending=False)
 
 
 
 
 
 
+ def rolling_zscore(X: pd.DataFrame, window: int = 30):
+    """
+    Rolling z-score normalization of all features.
+    """
+    return (X - X.rolling(window).mean()) / X.rolling(window).std()
+
+X_norm = rolling_zscore(X, window=30)
+X_norm = X_norm.dropna()
+y_aligned = y.loc[X_norm.index]
 
 
 
 
 
+    
