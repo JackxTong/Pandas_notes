@@ -57,6 +57,39 @@ models = {
     "ElasticNet": ElasticNetCV(cv=5, random_state=0)
 }
 
+tscv = TimeSeriesSplit(n_splits=5)
+
+# Step 3: Models
+models = {
+    "Lasso": LassoCV(alphas=np.logspace(-3, 1, 50), cv=tscv, max_iter=10000),
+    "ElasticNet": ElasticNetCV(alphas=np.logspace(-3, 1, 50), l1_ratio=[0.1, 0.5, 0.9], cv=tscv, max_iter=10000)
+}
+
+# RidgeCV workaround using GridSearchCV (for custom CV)
+ridge_grid = GridSearchCV(
+    estimator=Ridge(),
+    param_grid={"alpha": np.logspace(-3, 1, 50)},
+    cv=tscv
+)
+models["Ridge"] = ridge_grid
+
+# Step 4: Fit models and evaluate
+for name, model in models.items():
+    pipe = make_pipeline(StandardScaler(), ("reg", model))
+    pipe.fit(X, y)
+    
+    reg_model = pipe.named_steps["reg"]
+    r2 = pipe.score(X, y)
+    coefs = reg_model.best_estimator_.coef_ if hasattr(reg_model, "best_estimator_") else reg_model.coef_
+    nonzero_count = np.sum(coefs != 0)
+    
+    print(f"\n=== {name} ===")
+    print(f"R²: {r2:.4f}")
+    print(f"Non-zero Coefficients: {nonzero_count
+
+LassoCV(cv=tscv)
+ElasticNetCV(cv=tscv)
+RidgeCV(cv=tscv)  # This one is a bit different—see below.
 pipe = make_pipeline(StandardScaler(), ("reg", model))
 ...
 coefs = pipe.named_steps["reg"].coef_
