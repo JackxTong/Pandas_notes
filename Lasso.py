@@ -57,6 +57,10 @@ models = {
     "ElasticNet": ElasticNetCV(cv=5, random_state=0)
 }
 
+pipe = make_pipeline(StandardScaler(), ("reg", model))
+...
+coefs = pipe.named_steps["reg"].coef_
+
 # Fit and evaluate each model
 for name, model in models.items():
     pipe = make_pipeline(StandardScaler(), model)
