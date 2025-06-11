@@ -1,22 +1,46 @@
-import pandas as pd
+change
 
-# Example DataFrame (replace with your actual data)
-# Let's create some dummy data for demonstration
-dates = pd.to_datetime(pd.date_range(start='2023-01-01 09:00:00', end='2023-01-02 16:30:00', freq='30S'))
-df = pd.DataFrame({'convexity': range(len(dates))}, index=dates)
+```python
+df['whites'] = df[white_futures].mean(axis=1)  # Instead of .sum()/4
+df['reds'] = df[red_futures].mean(axis=1)
+df['greens'] = df[green_futures].mean(axis=1)
+```
 
-# Calculate the raw difference
-df['convexity_diff_raw'] = df['convexity'].shift(-60) - df['convexity'] # -60 for 30 mins forward
+Code to create all butterfly (fly) combinations of adjacent 3-future groups:
 
-# Define the market close time (e.g., 16:30:00)
-market_close_time = pd.to_datetime('16:30:00').time()
+```python
+fly_features = {}
 
-# Calculate the time 30 minutes before market close
-# This is the last valid time for which we can calculate a 30-min forward diff
-last_valid_time_for_diff = (pd.to_datetime('16:30:00') - pd.Timedelta(minutes=30)).time() # 16:00:00
+# Futures from ER1 to ER8
+future_cols = [f'ER{i}' for i in range(1, 9)]
 
-# Create a mask: True for rows where the time component is after the last valid time
-mask = df.index.time >= last_valid_time_for_diff
+# Generate butterfly features: ERi - 2*ER(i+1) + ER(i+2)
+for i in range(len(future_cols) - 2):
+    name = f'{future_cols[i]}{future_cols[i+1]}{future_cols[i+2]}'
+    df[name] = (
+        df[future_cols[i]] 
+        - 2 * df[future_cols[i+1]] 
+        + df[future_cols[i+2]]
+    )
 
-# Apply the mask to set the difference to NaN for those rows
-df.loc[mask, 'convexity_diff_raw'] = pd.NA # Or np.nan, depending on your pandas version
+
+```
+
+Double flies (2nd order curvature)
+Example: er1 - 2er3 + er5
+```
+for i in range(len(future_cols) - 4):
+    name = f'{future_cols[i]}_{future_cols[i+2]}_{future_cols[i+4]}_dblfly'
+    df[name] = df[future_cols[i]] - 2 * df[future_cols[i+2]] + df[future_cols[i+4]]
+
+```
+
+
+```
+df['front_avg'] = df[['ER1', 'ER2', 'ER3']].mean(axis=1)
+df['belly_avg'] = df[['ER4', 'ER5', 'ER6']].mean(axis=1)
+df['back_avg'] = df[['ER7', 'ER8']].mean(axis=1)
+
+df['front_belly_slope'] = df['front_avg'] - df['belly_avg']
+df['belly_back_slope'] = df['belly_avg'] - df['back_avg']
+```
