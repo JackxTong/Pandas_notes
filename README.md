@@ -9,7 +9,27 @@ def add_slope_features(group, group_name):
             df[name] = df[group[j]] - df[group[i]]
             slope_features[name] = df[name]
 
-# Apply to each group
-add_slope_features(group_A, 'A')
-add_slope_features(group_B, 'B')
-add_slope_features(group_C, 'C')
+
+
+slope_features = {}
+
+# Across Group A → B
+for a in group_A:
+    for b in group_B:
+        name = f'slope_{a}_{b}'
+        df[name] = df[b] - df[a]
+        slope_features[name] = df[name]
+
+# Across Group A → C
+for a in group_A:
+    for c in group_C:
+        name = f'slope_{a}_{c}'
+        df[name] = df[c] - df[a]
+        slope_features[name] = df[name]
+
+# Across Group B → C
+for b in group_B:
+    for c in group_C:
+        name = f'slope_{b}_{c}'
+        df[name] = df[c] - df[b]
+        slope_features[name] = df[name]
